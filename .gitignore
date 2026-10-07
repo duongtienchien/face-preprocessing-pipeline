@@ -1,0 +1,14 @@
+# Môi trường ảo
+venv/
+.venv/
+env/
+
+# Cache Python & macOS
+__pycache__/
+*.pyc
+.DS_Store
+
+# File ảnh kết quả chạy thử tạm thời
+result_*.jpg
+comparison.jpg
+test_*.jpg

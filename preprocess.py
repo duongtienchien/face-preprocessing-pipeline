@@ -2,116 +2,121 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import os
+import glob
+from tqdm import tqdm
 
 class FacePreprocessor:
     def __init__(self, target_size=(112, 112), padding_ratio=0.2):
         self.target_size = target_size
         self.padding_ratio = padding_ratio
-        
-        # Khởi tạo MediaPipe Face Detection
-        self.mp_face_detection = mp.solutions.face_detection
-        self.detector = self.mp_face_detection.FaceDetection(
-            model_selection=1,  # 1: tối ưu ảnh chân dung/khoảng cách trung bình
-            min_detection_confidence=0.5
-        )
-        
-        # Khởi tạo bộ cân bằng sáng cục bộ CLAHE
+        self.mp_face = mp.solutions.face_detection
+        self.detector = self.mp_face.FaceDetection(model_selection=1, min_detection_confidence=0.5)
         self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
 
-    def detect_and_crop(self, image_bgr):
-        """Phát hiện và crop khuôn mặt kèm padding an toàn"""
-        h, w, _ = image_bgr.shape
-        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-        results = self.detector.process(image_rgb)
+    def align_and_crop(self, img_bgr):
+        h, w, _ = img_bgr.shape
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        results = self.detector.process(img_rgb)
 
         if not results.detections:
             return None
 
-        # Lấy khuôn mặt đầu tiên
-        box = results.detections[0].location_data.relative_bounding_box
-        x = int(box.xmin * w)
-        y = int(box.ymin * h)
-        bw = int(box.width * w)
-        bh = int(box.height * h)
+        # Chọn khuôn mặt có diện tích lớn nhất nếu ảnh có nhiều người
+        best_detection = max(
+            results.detections,
+            key=lambda d: d.location_data.relative_bounding_box.width * d.location_data.relative_bounding_box.height
+        )
 
-        # Mở rộng biên (padding) để không bị xén trán hoặc cằm
-        pad_x = int(bw * self.padding_ratio)
-        pad_y = int(bh * self.padding_ratio)
+        # 1. Trích xuất landmark 2 mắt để thực hiện Alignment
+        keypoints = best_detection.location_data.relative_keypoints
+        right_eye = (int(keypoints[0].x * w), int(keypoints[0].y * h)) # Mắt phải người trong ảnh
+        left_eye  = (int(keypoints[1].x * w), int(keypoints[1].y * h)) # Mắt trái người trong ảnh
 
-        xmin = max(0, x - pad_x)
-        ymin = max(0, y - pad_y)
-        xmax = min(w, x + bw + pad_x)
-        ymax = min(h, y + bh + pad_y)
+        dY = right_eye[1] - left_eye[1]
+        dX = right_eye[0] - left_eye[0]
+        angle = np.degrees(np.arctan2(dY, dX)) - 180
 
-        return image_bgr[ymin:ymax, xmin:xmax]
+        # Tâm xoay là trung điểm 2 mắt
+        eyes_center = ((left_eye[0] + right_eye[0]) // 2, (left_eye[1] + right_eye[1]) // 2)
+        M = cv2.getRotationMatrix2D(eyes_center, angle, scale=1.0)
+        rotated = cv2.warpAffine(img_bgr, M, (w, h), flags=cv2.INTER_CUBIC)
+
+        # 2. Phát hiện lại vị trí bbox trên ảnh đã xoay thẳng
+        rotated_rgb = cv2.cvtColor(rotated, cv2.COLOR_BGR2RGB)
+        results_rot = self.detector.process(rotated_rgb)
+        if not results_rot.detections:
+            # Fallback nếu sau khi xoay không bắt lại được mặt
+            bbox = best_detection.location_data.relative_bounding_box
+        else:
+            bbox = results_rot.detections[0].location_data.relative_bounding_box
+
+        # Tính tọa độ crop kèm padding
+        bw, bh = int(bbox.width * w), int(bbox.height * h)
+        bx, by = int(bbox.xmin * w), int(bbox.ymin * h)
+        pad_x, pad_y = int(bw * self.padding_ratio), int(bh * self.padding_ratio)
+
+        x1 = max(0, bx - pad_x)
+        y1 = max(0, by - pad_y)
+        x2 = min(w, bx + bw + pad_x)
+        y2 = min(h, by + bh + pad_y)
+
+        return rotated[y1:y2, x1:x2]
 
     def dip_pipeline(self, face_bgr):
-        """Pipeline DIP: Khử nhiễu (Bilateral) + Cân bằng sáng (CLAHE) + Resize"""
         if face_bgr is None:
             return None
-
-        # 1. Khử nhiễu giữ cạnh bằng Bilateral Filter
+        # Khử nhiễu giữ biên cạnh
         denoised = cv2.bilateralFilter(face_bgr, d=7, sigmaColor=50, sigmaSpace=50)
-
-        # 2. Cân bằng tương phản bằng CLAHE trên kênh L (không gian màu LAB)
-        # Cách này cải thiện sáng tối tự nhiên mà không làm biến dạng màu da
+        # Cân bằng tương phản trên kênh L
         lab = cv2.cvtColor(denoised, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
-        l_clahe = self.clahe.apply(l)
-        enhanced_lab = cv2.merge((l_clahe, a, b))
+        enhanced_lab = cv2.merge((self.clahe.apply(l), a, b))
         enhanced_bgr = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
+        return cv2.resize(enhanced_bgr, self.target_size, interpolation=cv2.INTER_AREA)
 
-        # 3. Chuẩn hóa kích thước
-        resized = cv2.resize(enhanced_bgr, self.target_size, interpolation=cv2.INTER_AREA)
-        return resized
-
-    def process(self, image_input, apply_dip=True):
-        """
-        Hàm wrapper nhận đường dẫn file hoặc mảng numpy
-        apply_dip=True: Chạy full pipeline DIP
-        apply_dip=False: Chỉ crop & resize (phục vụ đối sánh thực nghiệm)
-        """
-        if isinstance(image_input, str):
-            if not os.path.exists(image_input):
-                print(f"[Lỗi] File không tồn tại: {image_input}")
-                return None
-            image = cv2.imread(image_input)
-        else:
-            image = image_input
-
-        if image is None:
+    def process(self, img_bgr, apply_dip=True):
+        face_aligned = self.align_and_crop(img_bgr)
+        if face_aligned is None:
             return None
-
-        face_crop = self.detect_and_crop(image)
-        if face_crop is None:
-            return None
-
         if apply_dip:
-            return self.dip_pipeline(face_crop)
-        else:
-            return cv2.resize(face_crop, self.target_size, interpolation=cv2.INTER_AREA)
+            return self.dip_pipeline(face_aligned)
+        return cv2.resize(face_aligned, self.target_size, interpolation=cv2.INTER_AREA)
 
 
-if __name__ == "__main__":
-    processor = FacePreprocessor(target_size=(112, 112))
-    input_file = "test.png"
-
-    # 1. Chạy ảnh có xử lý DIP
-    face_with_dip = processor.process(input_file, apply_dip=True)
+def run_batch(raw_dir="dataset_raw", out_no_dip="dataset_no_dip", out_with_dip="dataset_with_dip"):
+    processor = FacePreprocessor()
+    failed_files = []
     
-    # 2. Chạy ảnh gốc chỉ crop (dùng cho bảng số liệu thực nghiệm đối sánh)
-    face_no_dip = processor.process(input_file, apply_dip=False)
+    # Quét tất cả file ảnh trong cây thư mục
+    image_paths = glob.glob(f"{raw_dir}/**/*.*", recursive=True)
+    valid_exts = ('.jpg', '.jpeg', '.png', '.bmp')
+    image_paths = [p for p in image_paths if p.lower().endswith(valid_exts)]
+    
+    print(f"Bắt đầu xử lý {len(image_paths)} ảnh...")
+    for p in tqdm(image_paths):
+        rel_path = os.path.relpath(p, raw_dir)
+        img = cv2.imread(p)
+        if img is None:
+            failed_files.append((p, "Lỗi đọc file"))
+            continue
 
-    if face_with_dip is not None and face_no_dip is not None:
-        cv2.imwrite("result_with_dip.jpg", face_with_dip)
-        cv2.imwrite("result_no_dip.jpg", face_no_dip)
-        
-        # Ghép 2 ảnh cạnh nhau phóng to lên để mắt thường dễ quan sát so sánh
-        comparison = np.hstack((face_no_dip, face_with_dip))
-        comparison_display = cv2.resize(comparison, (448, 224), interpolation=cv2.INTER_NEAREST)
-        cv2.imwrite("comparison.jpg", comparison_display)
-        
-        print("Xử lý thành công!")
-        print("-> Đã xuất 'result_no_dip.jpg', 'result_with_dip.jpg' và 'comparison.jpg'")
-    else:
-        print("Không tìm thấy khuôn mặt trong ảnh test.jpg. Vui lòng thử ảnh khác.")
+        face_no_dip = processor.process(img, apply_dip=False)
+        face_with_dip = processor.process(img, apply_dip=True)
+
+        if face_with_dip is None:
+            failed_files.append((p, "Không nhận diện được khuôn mặt"))
+            continue
+
+        # Lưu ảnh đồng bộ cấu trúc thư mục
+        p1 = os.path.join(out_no_dip, rel_path)
+        p2 = os.path.join(out_with_dip, rel_path)
+        os.makedirs(os.path.dirname(p1), exist_ok=True)
+        os.makedirs(os.path.dirname(p2), exist_ok=True)
+        cv2.imwrite(p1, face_no_dip)
+        cv2.imwrite(p2, face_with_dip)
+
+    with open("cleaning_report.txt", "w") as f:
+        f.write(f"Tổng số: {len(image_paths)}\nThành công: {len(image_paths) - len(failed_files)}\nThất bại: {len(failed_files)}\n\n")
+        for item in failed_files:
+            f.write(f"{item[0]} -> {item[1]}\n")
+    print("Hoàn tất Batch Processing. Đã xuất log tại cleaning_report.txt.")

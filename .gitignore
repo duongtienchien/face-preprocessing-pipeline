@@ -12,3 +12,7 @@ __pycache__/
 result_*.jpg
 comparison.jpg
 test_*.jpg
+dataset_raw/
+dataset_no_dip/
+dataset_with_dip/
+*.zip

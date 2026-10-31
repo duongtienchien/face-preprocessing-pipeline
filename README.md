@@ -10,7 +10,7 @@ Dự án nghiên cứu giải pháp tối ưu hóa độ chính xác cho bài to
 | :--- | :--- | :--- | :--- |
 | **Hiếu** | **Lead - CNN & Model Pipeline** | - Thiết kế kiến trúc CNN (Custom CNN / MobileNetV2 / Mini-Xception)<br>- Thiết lập pipeline train/val, Loss function chống lệch nhãn<br>- Tối ưu siêu tham số, xuất Confusion Matrix | `train.py`, file trọng số tối ưu (`.pt` / `.onnx`), biểu đồ Loss/Acc, báo cáo phân tích lỗi |
 | **Chiến** | **DIP Specialist (Xử lý ảnh)** | - Face Detection & Alignment (xoay trục mắt về phương ngang)<br>- Pipeline DIP: Bilateral Filter khử nhiễu + CLAHE trên không gian màu LAB<br>- Batch processing làm sạch dữ liệu, đo chỉ số DIP độc lập | `preprocess.py`, 2 tập dữ liệu sạch (`dataset_no_dip`, `dataset_with_dip`), bảng số liệu thực nghiệm DIP |
-| **Linh** | **System Integration & App** | - Tích hợp Webcam realtime (Đọc frame $\rightarrow$ Ní 2 xử lý $\rightarrow$ Ní 1 dự đoán $\rightarrow$ HUD)<br>- Giao diện trực quan (Streamlit / OpenCV HUD bar chart)<br>- Quản lý tiến độ, hoàn thiện slide & báo cáo kỹ thuật | `app.py`, Slide thuyết trình, File báo cáo kỹ thuật (Word/LaTeX) |
+| **Linh** | **System Integration & App** | - Tích hợp Webcam realtime (Đọc frame $\rightarrow$ Ní 2 xử lý $\rightarrow$ Ní 1 dự đoán $\rightarrow$ HUD)<br>- Giao diện trực quan (Streamlit / OpenCV HUD bar chart)<br>- Quản lý tiến độ & báo cáo kỹ thuật | `app.py`, File báo cáo kỹ thuật (Word/LaTeX) |
 
 ---
 

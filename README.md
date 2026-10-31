@@ -100,9 +100,7 @@ pip install -r requirements.txt
 
 Dữ liệu đã qua làm sạch được chia sẻ qua Google Drive để tránh làm nặng repository Git:
 
-    Link tải Dataset Cleaned (Google Drive)
-
-        Giải nén dataset_no_dip/ và dataset_with_dip/ vào thư mục gốc dự án.
+    Link tải Dataset Cleaned (Google Drive) https://drive.google.com/file/d/10muBvWrnbhZPrxPxtAhEEL3Lw96A5mSp/view?usp=sharing
 
 3. Chạy đo đạc chỉ số DIP
 Bash

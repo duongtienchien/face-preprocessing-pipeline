@@ -54,3 +54,9 @@ typing_extensions==4.16.0
 urllib3==2.8.0
 xxhash==4.0.1
 yarl==1.25.1
+opencv-python
+mediapipe
+torch
+torchvision
+Pillow
+matplotlib
